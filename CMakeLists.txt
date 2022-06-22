@@ -3,4 +3,4 @@ project(RISCV)
 
 set(CMAKE_CXX_STANDARD 17)
 
-add_executable(RISCV main.cpp)
+add_executable(code main.cpp)
