@@ -4,7 +4,8 @@
 namespace RISCV {
     void run() {
         CPU cpu;
-        cpu.ReadMemory(stdin);
+        //cpu.ReadMemory(stdin);
+        cpu.ReadMemoryForTest();
         cpu.Run();
     }
 }
