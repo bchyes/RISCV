@@ -67,20 +67,6 @@ namespace RISCV {
                 }
             }
         }
-        /*void ReadMemoryForTest() {
-            char str[20];
-            uint32_t pos = 0;
-            uint32_t value;
-            while (~scanf("%s", str)) {
-                if (str[0] == '@') {
-                    sscanf(str, "@%x", &pos);
-                } else {
-                    sscanf(str, "%x", &value);
-                    memory[pos] = (uint8_t) value;
-                    pos++;
-                }
-            }
-        }*/
 
         uint32_t GetCommand(uint32_t &pos) {
             uint32_t value = 0;
