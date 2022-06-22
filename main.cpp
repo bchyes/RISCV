@@ -11,7 +11,7 @@ namespace RISCV {
 }
 
 int main() {
-    //freopen("lvalue2.data", "r", stdin);
+    freopen("naive.data", "r", stdin);
     RISCV::run();
     return 0;
 }

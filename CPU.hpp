@@ -71,7 +71,7 @@ namespace RISCV {
             char str[20];
             uint32_t pos = 0;
             uint32_t value;
-            while (scanf("%s", str) != EOF) {
+            while (~scanf("%s", str)) {
                 if (str[0] == '@') {
                     sscanf(str, "@%x", &pos);
                 } else {
