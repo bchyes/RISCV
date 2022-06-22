@@ -67,7 +67,7 @@ namespace RISCV {
                 }
             }
         }
-        void ReadMemoryForTest() {
+        /*void ReadMemoryForTest() {
             char str[20];
             uint32_t pos = 0;
             uint32_t value;
@@ -80,7 +80,7 @@ namespace RISCV {
                     pos++;
                 }
             }
-        }
+        }*/
 
         uint32_t GetCommand(uint32_t &pos) {
             uint32_t value = 0;

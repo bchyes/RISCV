@@ -4,14 +4,14 @@
 namespace RISCV {
     void run() {
         CPU cpu;
-        //cpu.ReadMemory(stdin);
-        cpu.ReadMemoryForTest();
+        cpu.ReadMemory(stdin);
+        //cpu.ReadMemoryForTest();
         cpu.Run();
     }
 }
 
 int main() {
-    freopen("qsort.data", "r", stdin);
+    //freopen("qsort.data", "r", stdin);
     RISCV::run();
     return 0;
 }
