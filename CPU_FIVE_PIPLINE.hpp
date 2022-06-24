@@ -43,16 +43,35 @@ namespace RISCV {
         };
 
         bool IF_flag = 0;
-        bool busy[REG_SIZE];
+        bool Branch_flag = 0;
+        //bool busy[REG_SIZE];//仅仅用于load函数需要停顿的情况
         std::queue<Command> q_for_command;
         std::queue<Decode> q_for_code;
         std::queue<Execute> q_for_mem;
         std::queue<Execute> q_for_reg;
         uint8_t wait_time = 0;
         Execute wait_for_sl;
+        uint8_t forwarding_mem_reg;
+        uint32_t forwarding_mem;
+        uint8_t forwarding_ex_reg;
+        uint32_t forwarding_ex;
+        int32_t tmp_reg_rs1;
+        int32_t tmp_reg_rs2;
+        uint32_t tmp_reg_rs1_u;
+        uint32_t tmp_reg_rs2_u;
     public:
         void RunFiveStagePipeline() {
-            for (cycle = 0;; cycle++) {
+            for (cycle = 0; cycle <= 45; cycle++) {
+                IF();
+                ID();
+                EX();
+                MEM();
+                WB();
+            }
+            for (cycle = 46;; cycle++) {
+                if (pc == 0x1000) {
+                    int x = 1;
+                }
                 IF();
                 ID();
                 EX();
@@ -124,354 +143,846 @@ namespace RISCV {
                 Decode code = q_for_code.front();
                 if (code.cycle == cycle) return;
                 Execute ex;
-                bool stall = 0;
-                switch (code.type) {
-                    case LUI:
-                        ex.reg_pos = code.div.rd;
-                        ex.val = code.imm;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case AUIPC:
-                        ex.reg_pos = code.div.rd;
-                        ex.val = code.imm + code.pc - 4;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case JAL:
-                        ex.mem_pos = code.pc + code.imm - 4;
-                        ex.jump = 1;
-                        ex.reg_pos = code.div.rd;
-                        ex.val = code.pc;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case JALR:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                //bool stall = 0;
+                if (q_for_mem.empty() && !wait_time) {
+                    switch (code.type) {
+                        case LUI:
+                            ex.reg_pos = code.div.rd;
+                            ex.val = code.imm;
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.val = code.pc;
-                        ex.jump = 1;
-                        ex.mem_pos = (reg[code.div.rs1] + code.imm) & (~1);
-                        ex.reg_pos = code.div.rd;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case BEQ:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                        case AUIPC:
+                            ex.reg_pos = code.div.rd;
+                            ex.val = code.imm + code.pc - 4;
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        if (reg[code.div.rs1] == reg[code.div.rs2]) {
+                        case JAL:
                             ex.mem_pos = code.pc + code.imm - 4;
                             ex.jump = 1;
-                        }
-                        break;
-                    case BNE:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                            ex.reg_pos = code.div.rd;
+                            ex.val = code.pc;
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        if (reg[code.div.rs1] != reg[code.div.rs2]) {
-                            ex.mem_pos = code.pc + code.imm - 4;
+                        case JALR:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.val = code.pc;
                             ex.jump = 1;
-                        }
-                        break;
-                    case BLT:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.mem_pos = (forwarding_ex + code.imm) & (~1);
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.mem_pos = (forwarding_mem + code.imm) & (~1);
+                            } else {
+                                ex.mem_pos = (reg[code.div.rs1] + code.imm) & (~1);
+                            }
+                            ex.reg_pos = code.div.rd;
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        if ((int32_t) reg[code.div.rs1] < (int32_t) reg[code.div.rs2]) {
-                            ex.mem_pos = code.pc + code.imm - 4;
-                            ex.jump = 1;
-                        }
-                        break;
-                    case BGE:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                        case BEQ:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                tmp_reg_rs1_u = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                tmp_reg_rs1_u = forwarding_mem;
+                            } else {
+                                tmp_reg_rs1_u = reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                tmp_reg_rs2_u = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                tmp_reg_rs2_u = forwarding_mem;
+                            } else {
+                                tmp_reg_rs2_u = reg[code.div.rs2];
+                            }
+                            if (tmp_reg_rs1_u == tmp_reg_rs2_u) {
+                                ex.mem_pos = code.pc + code.imm - 4;
+                                ex.jump = 1;
+                            }
+                            forwarding_ex_reg = 0;
+                            forwarding_ex = 0;
                             break;
-                        }
-                        if ((int32_t) reg[code.div.rs1] >= (int32_t) reg[code.div.rs2]) {
-                            ex.mem_pos = code.pc + code.imm - 4;
-                            ex.jump = 1;
-                        }
-                        break;
-                    case BLTU:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                        case BNE:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                tmp_reg_rs1_u = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                tmp_reg_rs1_u = forwarding_mem;
+                            } else {
+                                tmp_reg_rs1_u = reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                tmp_reg_rs2_u = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                tmp_reg_rs2_u = forwarding_mem;
+                            } else {
+                                tmp_reg_rs2_u = reg[code.div.rs2];
+                            }
+                            if (tmp_reg_rs1_u != tmp_reg_rs2_u) {
+                                ex.mem_pos = code.pc + code.imm - 4;
+                                ex.jump = 1;
+                            }
+                            forwarding_ex_reg = 0;
+                            forwarding_ex = 0;
                             break;
-                        }
-                        if (reg[code.div.rs1] < reg[code.div.rs2]) {
-                            ex.mem_pos = code.pc + code.imm - 4;
-                            ex.jump = 1;
-                        }
-                        break;
-                    case BGEU:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                        case BLT:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                tmp_reg_rs1 = (int32_t) forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                tmp_reg_rs1 = (int32_t) forwarding_mem;
+                            } else {
+                                tmp_reg_rs1 = (int32_t) reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                tmp_reg_rs2 = (int32_t) forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                tmp_reg_rs2 = (int32_t) forwarding_mem;
+                            } else {
+                                tmp_reg_rs2 = (int32_t) reg[code.div.rs2];
+                            }
+                            if (tmp_reg_rs1 < tmp_reg_rs2) {
+                                ex.mem_pos = code.pc + code.imm - 4;
+                                ex.jump = 1;
+                            }
+                            forwarding_ex_reg = 0;
+                            forwarding_ex = 0;
                             break;
-                        }
-                        if (reg[code.div.rs1] >= reg[code.div.rs2]) {
-                            ex.mem_pos = code.pc + code.imm - 4;
-                            ex.jump = 1;
-                        }
-                        break;
-                    case LB:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case BGE:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                tmp_reg_rs1 = (int32_t) forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                tmp_reg_rs1 = (int32_t) forwarding_mem;
+                            } else {
+                                tmp_reg_rs1 = (int32_t) reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                tmp_reg_rs2 = (int32_t) forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                tmp_reg_rs2 = (int32_t) forwarding_mem;
+                            } else {
+                                tmp_reg_rs2 = (int32_t) reg[code.div.rs2];
+                            }
+                            if (tmp_reg_rs1 >= tmp_reg_rs2) {
+                                ex.mem_pos = code.pc + code.imm - 4;
+                                ex.jump = 1;
+                            }
+                            forwarding_ex_reg = 0;
+                            forwarding_ex = 0;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.mem_pos = reg[code.div.rs1] + code.imm;
-                        ex.load_bit = 8;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case LH:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case BLTU:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                tmp_reg_rs1_u = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                tmp_reg_rs1_u = forwarding_mem;
+                            } else {
+                                tmp_reg_rs1_u = reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                tmp_reg_rs2_u = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                tmp_reg_rs2_u = forwarding_mem;
+                            } else {
+                                tmp_reg_rs2_u = reg[code.div.rs2];
+                            }
+                            if (tmp_reg_rs1_u < tmp_reg_rs2_u) {
+                                ex.mem_pos = code.pc + code.imm - 4;
+                                ex.jump = 1;
+                            }
+                            forwarding_ex_reg = 0;
+                            forwarding_ex = 0;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.mem_pos = reg[code.div.rs1] + code.imm;
-                        ex.load_bit = 16;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case LW:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case BGEU:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                tmp_reg_rs1_u = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                tmp_reg_rs1_u = forwarding_mem;
+                            } else {
+                                tmp_reg_rs1_u = reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                tmp_reg_rs2_u = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                tmp_reg_rs2_u = forwarding_mem;
+                            } else {
+                                tmp_reg_rs2_u = reg[code.div.rs2];
+                            }
+                            if (tmp_reg_rs1_u >= tmp_reg_rs2_u) {
+                                ex.mem_pos = code.pc + code.imm - 4;
+                                ex.jump = 1;
+                            }
+                            forwarding_ex_reg = 0;
+                            forwarding_ex = 0;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.mem_pos = reg[code.div.rs1] + code.imm;
-                        ex.load_bit = 32;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case LBU:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case LB:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_ex + code.imm;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_mem + code.imm;
+                            } else {
+                                ex.mem_pos = reg[code.div.rs1] + code.imm;
+                            }
+                            ex.load_bit = 8;
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = 0;
+                            forwarding_ex = 0;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.mem_pos = reg[code.div.rs1] + code.imm;
-                        ex.load_bit = -8;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case LHU:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case LH:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_ex + code.imm;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_mem + code.imm;
+                            } else {
+                                ex.mem_pos = reg[code.div.rs1] + code.imm;
+                            }
+                            ex.load_bit = 16;
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = 0;
+                            forwarding_ex = 0;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.mem_pos = reg[code.div.rs1] + code.imm;
-                        ex.load_bit = -16;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case SB:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case LW:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_ex + code.imm;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_mem + code.imm;
+                            } else {
+                                ex.mem_pos = reg[code.div.rs1] + code.imm;
+                            }
+                            ex.load_bit = 32;
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = 0;
+                            forwarding_ex = 0;
                             break;
-                        }
-                        ex.reg_pos = code.div.rs2;
-                        ex.mem_pos = reg[code.div.rs1] + code.imm;
-                        ex.save_bit = 8;
-                        //busy[ex.reg_pos] = 1;
-                        break;
-                    case SH:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case LBU:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_ex + code.imm;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_mem + code.imm;
+                            } else {
+                                ex.mem_pos = reg[code.div.rs1] + code.imm;
+                            }
+                            ex.load_bit = -8;
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = 0;
+                            forwarding_ex = 0;
                             break;
-                        }
-                        ex.reg_pos = code.div.rs2;
-                        ex.mem_pos = reg[code.div.rs1] + code.imm;
-                        ex.save_bit = 16;
-                        //busy[ex.reg_pos] = 1;
-                        break;
-                    case SW:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case LHU:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_ex + code.imm;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_mem + code.imm;
+                            } else {
+                                ex.mem_pos = reg[code.div.rs1] + code.imm;
+                            }
+                            ex.load_bit = -16;
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = 0;
+                            forwarding_ex = 0;
                             break;
-                        }
-                        ex.reg_pos = code.div.rs2;
-                        ex.mem_pos = reg[code.div.rs1] + code.imm;
-                        ex.save_bit = 32;
-                        //busy[ex.reg_pos] = 1;
-                        break;
-                    case ADDI:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case SB:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            //ex.reg_pos = code.div.rs2;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_ex + code.imm;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_mem + code.imm;
+                            } else {
+                                ex.mem_pos = reg[code.div.rs1] + code.imm;
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                ex.val = GetBitBetween(forwarding_ex, 0, 7);
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                ex.val = GetBitBetween(forwarding_mem, 0, 7);
+                            } else {
+                                ex.val = GetBitBetween(reg[code.div.rs2], 0, 7);
+                            }
+                            ex.save_bit = 8;
+                            forwarding_ex_reg = 0;
+                            forwarding_ex = 0;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.val = reg[code.div.rs1] + code.imm;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case SLTI:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case SH:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            //ex.reg_pos = code.div.rs2;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_ex + code.imm;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_mem + code.imm;
+                            } else {
+                                ex.mem_pos = reg[code.div.rs1] + code.imm;
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                ex.val = GetBitBetween(forwarding_ex, 0, 15);
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                ex.val = GetBitBetween(forwarding_mem, 0, 15);
+                            } else {
+                                ex.val = GetBitBetween(reg[code.div.rs2], 0, 15);
+                            }
+                            ex.save_bit = 16;
+                            forwarding_ex_reg = 0;
+                            forwarding_ex = 0;
                             break;
-                        }
-                        if ((int32_t) reg[code.div.rs1] < code.imm) ex.val = 1;
-                        else ex.val = 0;
-                        ex.reg_pos = code.div.rd;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case SLTIU:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case SW:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            //ex.reg_pos = code.div.rs2;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_ex + code.imm;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.mem_pos = forwarding_mem + code.imm;
+                            } else {
+                                ex.mem_pos = reg[code.div.rs1] + code.imm;
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                ex.val = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                ex.val = forwarding_mem;
+                            } else {
+                                ex.val = reg[code.div.rs2];
+                            }
+                            ex.save_bit = 32;
+                            forwarding_ex_reg = 0;
+                            forwarding_ex = 0;
                             break;
-                        }
-                        if (reg[code.div.rs1] < (uint32_t) code.imm) ex.val = 1;
-                        else ex.val = 0;
-                        ex.reg_pos = code.div.rd;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case XORI:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case ADDI:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.val = forwarding_ex + code.imm;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.val = forwarding_mem + code.imm;
+                            } else {
+                                ex.val = reg[code.div.rs1] + code.imm;
+                            }
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.val = reg[code.div.rs1] ^ code.imm;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case ORI:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case SLTI:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                if ((int32_t) forwarding_ex < code.imm) ex.val = 1;
+                                else ex.val = 0;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                if ((int32_t) forwarding_mem < code.imm) ex.val = 1;
+                                else ex.val = 0;
+                            } else {
+                                if ((int32_t) reg[code.div.rs1] < code.imm) ex.val = 1;
+                                else ex.val = 0;
+                            }
+                            ex.reg_pos = code.div.rd;
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.val = reg[code.div.rs1] | code.imm;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case ANDI:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case SLTIU:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                if (forwarding_ex < (uint32_t) code.imm) ex.val = 1;
+                                else ex.val = 0;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                if (forwarding_mem < (uint32_t) code.imm) ex.val = 1;
+                                else ex.val = 0;
+                            } else {
+                                if (reg[code.div.rs1] < (uint32_t) code.imm) ex.val = 1;
+                                else ex.val = 0;
+                            }
+                            if (reg[code.div.rs1] < (uint32_t) code.imm) ex.val = 1;
+                            else ex.val = 0;
+                            ex.reg_pos = code.div.rd;
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.val = reg[code.div.rs1] & code.imm;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case SLLI:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case XORI:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.val = forwarding_ex ^ code.imm;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.val = forwarding_mem ^ code.imm;
+                            } else {
+                                ex.val = reg[code.div.rs1] ^ code.imm;
+                            }
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.val = reg[code.div.rs1] << code.div.rs2;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case SRLI:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case ORI:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.val = forwarding_ex | code.imm;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.val = forwarding_mem | code.imm;
+                            } else {
+                                ex.val = reg[code.div.rs1] | code.imm;
+                            }
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.val = reg[code.div.rs1] >> code.div.rs2;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case SRAI:
-                        if (busy[code.div.rs1]) {
-                            stall = 1;
+                        case ANDI:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.val = forwarding_ex & code.imm;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.val = forwarding_mem & code.imm;
+                            } else {
+                                ex.val = reg[code.div.rs1] & code.imm;
+                            }
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.val = ((int32_t) reg[code.div.rs1]) >> ((int32_t) code.div.rs2);
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case ADD:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                        case SLLI:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.val = forwarding_ex << code.div.rs2;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.val = forwarding_mem << code.div.rs2;
+                            } else {
+                                ex.val = reg[code.div.rs1] << code.div.rs2;
+                            }
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.val = reg[code.div.rs1] + reg[code.div.rs2];
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case SUB:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                        case SRLI:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.val = forwarding_ex >> code.div.rs2;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.val = forwarding_mem >> code.div.rs2;
+                            } else {
+                                ex.val = reg[code.div.rs1] >> code.div.rs2;
+                            }
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.val = reg[code.div.rs1] - reg[code.div.rs2];
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case SLL:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                        case SRAI:
+                            /*if (busy[code.div.rs1]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.val = ((int32_t) forwarding_ex) >> ((int32_t) code.div.rs2);
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.val = ((int32_t) forwarding_mem) >> ((int32_t) code.div.rs2);
+                            } else {
+                                ex.val = ((int32_t) reg[code.div.rs1]) >> ((int32_t) code.div.rs2);
+                            }
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.val = reg[code.div.rs1] << GetBitBetween(reg[code.div.rs2], 0, 4);
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case SLT:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                        case ADD:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.val = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.val = forwarding_mem;
+                            } else {
+                                ex.val = reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                ex.val += forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                ex.val += forwarding_mem;
+                            } else {
+                                ex.val += reg[code.div.rs2];
+                            }
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        if ((int32_t) reg[code.div.rs1] < (int32_t) reg[code.div.rs2]) ex.val = 1; else ex.val = 0;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case SLTU:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                        case SUB:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.val = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.val = forwarding_mem;
+                            } else {
+                                ex.val = reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                ex.val -= forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                ex.val -= forwarding_mem;
+                            } else {
+                                ex.val -= reg[code.div.rs2];
+                            }
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        if (reg[code.div.rs1] < reg[code.div.rs2]) ex.val = 1; else ex.val = 0;
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case XOR:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                        case SLL:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.val = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.val = forwarding_mem;
+                            } else {
+                                ex.val = reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                ex.val <<= GetBitBetween(forwarding_ex, 0, 4);
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                ex.val <<= GetBitBetween(forwarding_mem, 0, 4);
+                            } else {
+                                ex.val <<= GetBitBetween(reg[code.div.rs2], 0, 4);
+                            }
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.val = reg[code.div.rs1] ^ reg[code.div.rs2];
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case SRL:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                        case SLT:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                tmp_reg_rs1 = (int32_t) forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                tmp_reg_rs1 = (int32_t) forwarding_mem;
+                            } else {
+                                tmp_reg_rs1 = (int32_t) reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                tmp_reg_rs2 = (int32_t) forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                tmp_reg_rs2 = (int32_t) forwarding_mem;
+                            } else {
+                                tmp_reg_rs2 = (int32_t) reg[code.div.rs2];
+                            }
+                            if (tmp_reg_rs1 < tmp_reg_rs2) ex.val = 1; else ex.val = 0;
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.val = reg[code.div.rs1] >> GetBitBetween(reg[code.div.rs2], 0, 4);
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case SRA:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                        case SLTU:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                tmp_reg_rs1_u = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                tmp_reg_rs1_u = forwarding_mem;
+                            } else {
+                                tmp_reg_rs1_u = reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                tmp_reg_rs2_u = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                tmp_reg_rs2_u = forwarding_mem;
+                            } else {
+                                tmp_reg_rs2_u = reg[code.div.rs2];
+                            }
+                            if (tmp_reg_rs1_u < tmp_reg_rs2_u) ex.val = 1; else ex.val = 0;
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.val = reg[code.div.rs1] >> ((int32_t) GetBitBetween(reg[code.div.rs2], 0, 4));
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case OR:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                        case XOR:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.val = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.val = forwarding_mem;
+                            } else {
+                                ex.val = reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                ex.val ^= forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                ex.val ^= forwarding_mem;
+                            } else {
+                                ex.val ^= reg[code.div.rs2];
+                            }
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.val = reg[code.div.rs1] | reg[code.div.rs2];
-                        busy[ex.reg_pos] = 1;
-                        break;
-                    case AND:
-                        if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                            stall = 1;
+                        case SRL:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.val = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.val = forwarding_mem;
+                            } else {
+                                ex.val = reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                ex.val >>= GetBitBetween(forwarding_ex, 0, 4);
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                ex.val >>= GetBitBetween(forwarding_mem, 0, 4);
+                            } else {
+                                ex.val >>= GetBitBetween(reg[code.div.rs2], 0, 4);
+                            }
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
                             break;
-                        }
-                        ex.reg_pos = code.div.rd;
-                        ex.val = reg[code.div.rs1] & reg[code.div.rs2];
-                        busy[ex.reg_pos] = 1;
-                        break;
-                }
-                if (!stall) {
+                        case SRA:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.val = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.val = forwarding_mem;
+                            } else {
+                                ex.val = reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                ex.val >>= ((int32_t) GetBitBetween(forwarding_ex, 0, 4));
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                ex.val >>= ((int32_t) GetBitBetween(forwarding_mem, 0, 4));
+                            } else {
+                                ex.val >>= ((int32_t) GetBitBetween(reg[code.div.rs2], 0, 4));
+                            }
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
+                            break;
+                        case OR:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.val = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.val = forwarding_mem;
+                            } else {
+                                ex.val = reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                ex.val |= forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                ex.val |= forwarding_mem;
+                            } else {
+                                ex.val |= reg[code.div.rs2];
+                            }
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
+                            break;
+                        case AND:
+                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
+                                stall = 1;
+                                forwarding_ex_reg = 0;
+                                forwarding_ex = 0;
+                                break;
+                            }*/
+                            ex.reg_pos = code.div.rd;
+                            if (forwarding_ex_reg == code.div.rs1) {
+                                ex.val = forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs1) {
+                                ex.val = forwarding_mem;
+                            } else {
+                                ex.val = reg[code.div.rs1];
+                            }
+                            if (forwarding_ex_reg == code.div.rs2) {
+                                ex.val &= forwarding_ex;
+                            } else if (forwarding_mem_reg == code.div.rs2) {
+                                ex.val &= forwarding_mem;
+                            } else {
+                                ex.val &= reg[code.div.rs2];
+                            }
+                            //busy[ex.reg_pos] = 1;
+                            forwarding_ex_reg = ex.reg_pos;
+                            forwarding_ex = ex.val;
+                            break;
+                    }
+                    //if (!stall) {
                     q_for_code.pop();
                     ex.cycle = cycle;
                     q_for_mem.push(ex);
+                    //}
                 }
             }
         }
@@ -499,19 +1010,24 @@ namespace RISCV {
                                 break;
                         }
                         wait_for_sl.cycle = cycle;
+                        //busy[wait_for_sl.reg_pos] = 0;
+                        forwarding_mem_reg = wait_for_sl.reg_pos;
+                        forwarding_mem = wait_for_sl.val;
                         q_for_reg.push(wait_for_sl);
                     } else if (wait_for_sl.save_bit) {
                         switch (wait_for_sl.save_bit) {
                             case 8:
-                                memory.getPos8(wait_for_sl.mem_pos) = GetBitBetween(reg[wait_for_sl.reg_pos], 0, 7);
+                                memory.getPos8(wait_for_sl.mem_pos) = wait_for_sl.val;
                                 break;
                             case 16:
-                                memory.getPos16(wait_for_sl.mem_pos) = GetBitBetween(reg[wait_for_sl.reg_pos], 0, 15);
+                                memory.getPos16(wait_for_sl.mem_pos) = wait_for_sl.val;
                                 break;
                             case 32:
-                                memory.getPos32(wait_for_sl.mem_pos) = reg[wait_for_sl.reg_pos];
+                                memory.getPos32(wait_for_sl.mem_pos) = wait_for_sl.val;
                                 break;
                         }
+                        forwarding_mem_reg = 0;
+                        forwarding_mem = 0;
                     }
                     wait_time = 0;
                 }
@@ -523,21 +1039,34 @@ namespace RISCV {
                 if (ex.jump) {
                     if (!q_for_reg.empty()) return;
                     pc = ex.mem_pos;
-                    if (ex.reg_pos) reg[ex.reg_pos] = ex.val;
+                    if (ex.reg_pos && !Branch_flag) {
+                        q_for_reg.push(ex);
+                        reg[ex.reg_pos] = ex.val;
+                        Branch_flag = 1;
+                    }
                     IF_flag = 0;
                     while (!q_for_command.empty()) q_for_command.pop();
                     while (!q_for_code.empty()) q_for_code.pop();
                     while (!q_for_mem.empty()) q_for_mem.pop();
                     wait_time = 0;
-                    for (int i = 0; i < 32; i++)
-                        busy[i] = 0;
+                    /*for (int i = 0; i < 32; i++)
+                        busy[i] = 0;*/
+                    forwarding_ex = 0;
+                    forwarding_ex_reg = 0;
+                    forwarding_mem = 0;
+                    forwarding_mem_reg = 0;
+                    Branch_flag = 0;
                     return;
                 } else if (ex.load_bit || ex.save_bit) {
                     wait_for_sl = ex;
                     wait_time++;
+                    forwarding_mem_reg = 0;
+                    forwarding_mem = 0;
                 } else {
                     ex.cycle = cycle;
                     q_for_reg.push(ex);
+                    forwarding_mem_reg = ex.reg_pos;
+                    forwarding_mem = ex.val;
                 }
                 q_for_mem.pop();
             }
@@ -549,7 +1078,7 @@ namespace RISCV {
                 if (ex.cycle == cycle) return;
                 q_for_reg.pop();
                 reg[ex.reg_pos] = ex.val;
-                busy[ex.reg_pos] = 0;
+                //busy[ex.reg_pos] = 0;
             }
         }
 

@@ -1,0 +1,6 @@
+修改了ex在处理save指令时没有计算出应该存的数值，而是记录寄存器的bug
+修复了branch时直接写入寄存器的bug
+
+解决了第一稿一开始认为可以一直ex，只需在load的时候判断busy，但是由于模拟是三个周期，故可能在多次save的周期内还没save进去forwarding值就消失的了情况
+见array_test1 108c 数据点
+故在save/load时ex也该stall
