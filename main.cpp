@@ -18,7 +18,7 @@ namespace RISCV {
 }
 
 int main() {
-    freopen("qsort.data", "r", stdin);
+    //freopen("pi.data", "r", stdin);
     RISCV::RunFiveStagePipeline();
     return 0;
 }
