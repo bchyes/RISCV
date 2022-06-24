@@ -1,15 +1,24 @@
 #include "CPU.hpp"
+#include "CPU_SINGLE_PIPELINE.hpp"
+#include "CPU_FIVE_PIPLINE.hpp"
 #include <iostream>
 
 namespace RISCV {
-    void run() {
-        CPU cpu;
+    void Run() {
+        CPU_SINGLE_PIPELINE cpu;
         cpu.ReadMemory(stdin);
         cpu.Run();
+    }
+
+    void RunFiveStagePipeline() {
+        CPU_FIVE_PIPELINE cpu;
+        cpu.ReadMemory(stdin);
+        cpu.RunFiveStagePipeline();
     }
 }
 
 int main() {
-    RISCV::run();
+    freopen("qsort.data", "r", stdin);
+    RISCV::RunFiveStagePipeline();
     return 0;
 }

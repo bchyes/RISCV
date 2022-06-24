@@ -16,6 +16,8 @@ namespace RISCV {
             unsigned funct7: 7;
         };
 
+        explicit Divide() = default;
+
         explicit Divide(const uint32_t &value) : command(value) {};
     };
 
@@ -31,11 +33,6 @@ namespace RISCV {
     template<uint32_t B>
     int32_t signedExtend(const int32_t &val) {
         return signExtend<int32_t, B>(val);
-    }
-
-    template<uint32_t B>
-    uint32_t unsignedExtend(const uint32_t &val) {
-        return signExtend<uint32_t, B>(val);
     }
 
     int32_t GetimmU(const Divide &div) {
