@@ -45,7 +45,6 @@ namespace RISCV {
         bool IF_flag = 0;
         bool Branch_flag = 0;
         bool wait_for_load = 0;
-        //bool busy[REG_SIZE];//仅仅用于load函数需要停顿的情况
         std::queue<Command> q_for_command;
         std::queue<Decode> q_for_code;
         std::queue<Execute> q_for_mem;
@@ -60,6 +59,12 @@ namespace RISCV {
         int32_t tmp_reg_rs2;
         uint32_t tmp_reg_rs1_u;
         uint32_t tmp_reg_rs2_u;
+        uint8_t Beq_branch = 0;
+        uint8_t Bne_branch = 0;
+        uint8_t Blt_branch = 0;
+        uint8_t Bge_branch = 0;
+        uint8_t Bltu_branch = 0;
+        uint8_t Bgeu_branch = 0;
     public:
         void RunFiveStagePipeline() {
             for (cycle = 0;; cycle++) {
@@ -77,7 +82,7 @@ namespace RISCV {
         }
 
         void IF() {
-            if (!IF_flag) {
+            if (!IF_flag && q_for_command.size() <= 1) {
                 uint32_t command = GetCommand(pc);
                 if (command == 0x0ff00513) {
                     IF_flag = 1;
@@ -88,7 +93,7 @@ namespace RISCV {
         }
 
         void ID() {
-            if (!q_for_command.empty()) {
+            if (!q_for_command.empty() && q_for_code.size() <= 1) {
                 Command command = q_for_command.front();
                 if (cycle == command.cycle) return;
                 q_for_command.pop();
@@ -135,20 +140,17 @@ namespace RISCV {
                 Decode code = q_for_code.front();
                 if (code.cycle == cycle) return;
                 Execute ex;
-                //bool stall = 0;
                 if (q_for_mem.size() <= 1 && !wait_time && !wait_for_load) {
                     switch (code.type) {
                         case LUI:
                             ex.reg_pos = code.div.rd;
                             ex.val = code.imm;
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case AUIPC:
                             ex.reg_pos = code.div.rd;
                             ex.val = code.imm + code.pc - 4;
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
@@ -157,17 +159,10 @@ namespace RISCV {
                             ex.jump = 1;
                             ex.reg_pos = code.div.rd;
                             ex.val = code.pc;
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case JALR:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.val = code.pc;
                             ex.jump = 1;
                             if (forwarding_ex_reg == code.div.rs1) {
@@ -178,17 +173,10 @@ namespace RISCV {
                                 ex.mem_pos = (reg[code.div.rs1] + code.imm) & (~1);
                             }
                             ex.reg_pos = code.div.rd;
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case BEQ:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             if (forwarding_ex_reg == code.div.rs1) {
                                 tmp_reg_rs1_u = forwarding_ex;
                             } else if (forwarding_mem_reg == code.div.rs1) {
@@ -211,12 +199,6 @@ namespace RISCV {
                             forwarding_ex = 0;
                             break;
                         case BNE:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             if (forwarding_ex_reg == code.div.rs1) {
                                 tmp_reg_rs1_u = forwarding_ex;
                             } else if (forwarding_mem_reg == code.div.rs1) {
@@ -239,12 +221,6 @@ namespace RISCV {
                             forwarding_ex = 0;
                             break;
                         case BLT:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             if (forwarding_ex_reg == code.div.rs1) {
                                 tmp_reg_rs1 = (int32_t) forwarding_ex;
                             } else if (forwarding_mem_reg == code.div.rs1) {
@@ -267,12 +243,6 @@ namespace RISCV {
                             forwarding_ex = 0;
                             break;
                         case BGE:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             if (forwarding_ex_reg == code.div.rs1) {
                                 tmp_reg_rs1 = (int32_t) forwarding_ex;
                             } else if (forwarding_mem_reg == code.div.rs1) {
@@ -295,12 +265,6 @@ namespace RISCV {
                             forwarding_ex = 0;
                             break;
                         case BLTU:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             if (forwarding_ex_reg == code.div.rs1) {
                                 tmp_reg_rs1_u = forwarding_ex;
                             } else if (forwarding_mem_reg == code.div.rs1) {
@@ -323,12 +287,6 @@ namespace RISCV {
                             forwarding_ex = 0;
                             break;
                         case BGEU:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             if (forwarding_ex_reg == code.div.rs1) {
                                 tmp_reg_rs1_u = forwarding_ex;
                             } else if (forwarding_mem_reg == code.div.rs1) {
@@ -351,12 +309,6 @@ namespace RISCV {
                             forwarding_ex = 0;
                             break;
                         case LB:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.mem_pos = forwarding_ex + code.imm;
@@ -366,18 +318,11 @@ namespace RISCV {
                                 ex.mem_pos = reg[code.div.rs1] + code.imm;
                             }
                             ex.load_bit = 8;
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
                             wait_for_load = 1;
                             break;
                         case LH:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.mem_pos = forwarding_ex + code.imm;
@@ -387,18 +332,11 @@ namespace RISCV {
                                 ex.mem_pos = reg[code.div.rs1] + code.imm;
                             }
                             ex.load_bit = 16;
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
                             wait_for_load = 1;
                             break;
                         case LW:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.mem_pos = forwarding_ex + code.imm;
@@ -408,18 +346,11 @@ namespace RISCV {
                                 ex.mem_pos = reg[code.div.rs1] + code.imm;
                             }
                             ex.load_bit = 32;
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
                             wait_for_load = 1;
                             break;
                         case LBU:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.mem_pos = forwarding_ex + code.imm;
@@ -429,18 +360,11 @@ namespace RISCV {
                                 ex.mem_pos = reg[code.div.rs1] + code.imm;
                             }
                             ex.load_bit = -8;
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
                             wait_for_load = 1;
                             break;
                         case LHU:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.mem_pos = forwarding_ex + code.imm;
@@ -450,19 +374,11 @@ namespace RISCV {
                                 ex.mem_pos = reg[code.div.rs1] + code.imm;
                             }
                             ex.load_bit = -16;
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
                             wait_for_load = 1;
                             break;
                         case SB:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
-                            //ex.reg_pos = code.div.rs2;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.mem_pos = forwarding_ex + code.imm;
                             } else if (forwarding_mem_reg == code.div.rs1) {
@@ -482,13 +398,6 @@ namespace RISCV {
                             forwarding_ex = 0;
                             break;
                         case SH:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
-                            //ex.reg_pos = code.div.rs2;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.mem_pos = forwarding_ex + code.imm;
                             } else if (forwarding_mem_reg == code.div.rs1) {
@@ -508,13 +417,6 @@ namespace RISCV {
                             forwarding_ex = 0;
                             break;
                         case SW:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
-                            //ex.reg_pos = code.div.rs2;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.mem_pos = forwarding_ex + code.imm;
                             } else if (forwarding_mem_reg == code.div.rs1) {
@@ -534,12 +436,6 @@ namespace RISCV {
                             forwarding_ex = 0;
                             break;
                         case ADDI:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.val = forwarding_ex + code.imm;
@@ -548,17 +444,10 @@ namespace RISCV {
                             } else {
                                 ex.val = reg[code.div.rs1] + code.imm;
                             }
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case SLTI:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             if (forwarding_ex_reg == code.div.rs1) {
                                 if ((int32_t) forwarding_ex < code.imm) ex.val = 1;
                                 else ex.val = 0;
@@ -570,17 +459,10 @@ namespace RISCV {
                                 else ex.val = 0;
                             }
                             ex.reg_pos = code.div.rd;
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case SLTIU:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             if (forwarding_ex_reg == code.div.rs1) {
                                 if (forwarding_ex < (uint32_t) code.imm) ex.val = 1;
                                 else ex.val = 0;
@@ -594,17 +476,10 @@ namespace RISCV {
                             if (reg[code.div.rs1] < (uint32_t) code.imm) ex.val = 1;
                             else ex.val = 0;
                             ex.reg_pos = code.div.rd;
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case XORI:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.val = forwarding_ex ^ code.imm;
@@ -613,17 +488,10 @@ namespace RISCV {
                             } else {
                                 ex.val = reg[code.div.rs1] ^ code.imm;
                             }
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case ORI:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.val = forwarding_ex | code.imm;
@@ -632,17 +500,10 @@ namespace RISCV {
                             } else {
                                 ex.val = reg[code.div.rs1] | code.imm;
                             }
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case ANDI:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.val = forwarding_ex & code.imm;
@@ -651,17 +512,10 @@ namespace RISCV {
                             } else {
                                 ex.val = reg[code.div.rs1] & code.imm;
                             }
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case SLLI:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.val = forwarding_ex << code.div.rs2;
@@ -670,17 +524,10 @@ namespace RISCV {
                             } else {
                                 ex.val = reg[code.div.rs1] << code.div.rs2;
                             }
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case SRLI:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.val = forwarding_ex >> code.div.rs2;
@@ -689,17 +536,10 @@ namespace RISCV {
                             } else {
                                 ex.val = reg[code.div.rs1] >> code.div.rs2;
                             }
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case SRAI:
-                            /*if (busy[code.div.rs1]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.val = ((int32_t) forwarding_ex) >> ((int32_t) code.div.rs2);
@@ -708,17 +548,10 @@ namespace RISCV {
                             } else {
                                 ex.val = ((int32_t) reg[code.div.rs1]) >> ((int32_t) code.div.rs2);
                             }
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case ADD:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.val = forwarding_ex;
@@ -734,17 +567,10 @@ namespace RISCV {
                             } else {
                                 ex.val += reg[code.div.rs2];
                             }
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case SUB:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.val = forwarding_ex;
@@ -760,17 +586,10 @@ namespace RISCV {
                             } else {
                                 ex.val -= reg[code.div.rs2];
                             }
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case SLL:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.val = forwarding_ex;
@@ -786,17 +605,10 @@ namespace RISCV {
                             } else {
                                 ex.val <<= GetBitBetween(reg[code.div.rs2], 0, 4);
                             }
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case SLT:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 tmp_reg_rs1 = (int32_t) forwarding_ex;
@@ -813,17 +625,10 @@ namespace RISCV {
                                 tmp_reg_rs2 = (int32_t) reg[code.div.rs2];
                             }
                             if (tmp_reg_rs1 < tmp_reg_rs2) ex.val = 1; else ex.val = 0;
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case SLTU:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 tmp_reg_rs1_u = forwarding_ex;
@@ -840,17 +645,10 @@ namespace RISCV {
                                 tmp_reg_rs2_u = reg[code.div.rs2];
                             }
                             if (tmp_reg_rs1_u < tmp_reg_rs2_u) ex.val = 1; else ex.val = 0;
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case XOR:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.val = forwarding_ex;
@@ -866,17 +664,10 @@ namespace RISCV {
                             } else {
                                 ex.val ^= reg[code.div.rs2];
                             }
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case SRL:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.val = forwarding_ex;
@@ -892,17 +683,10 @@ namespace RISCV {
                             } else {
                                 ex.val >>= GetBitBetween(reg[code.div.rs2], 0, 4);
                             }
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case SRA:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.val = forwarding_ex;
@@ -918,17 +702,10 @@ namespace RISCV {
                             } else {
                                 ex.val >>= ((int32_t) GetBitBetween(reg[code.div.rs2], 0, 4));
                             }
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case OR:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.val = forwarding_ex;
@@ -944,17 +721,10 @@ namespace RISCV {
                             } else {
                                 ex.val |= reg[code.div.rs2];
                             }
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                         case AND:
-                            /*if (busy[code.div.rs1] || busy[code.div.rs2]) {
-                                stall = 1;
-                                forwarding_ex_reg = 0;
-                                forwarding_ex = 0;
-                                break;
-                            }*/
                             ex.reg_pos = code.div.rd;
                             if (forwarding_ex_reg == code.div.rs1) {
                                 ex.val = forwarding_ex;
@@ -970,16 +740,13 @@ namespace RISCV {
                             } else {
                                 ex.val &= reg[code.div.rs2];
                             }
-                            //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = ex.reg_pos;
                             forwarding_ex = ex.val;
                             break;
                     }
-                    //if (!stall) {
                     q_for_code.pop();
                     ex.cycle = cycle;
                     q_for_mem.push(ex);
-                    //}
                 }
             }
         }
@@ -1007,7 +774,6 @@ namespace RISCV {
                                 break;
                         }
                         wait_for_sl.cycle = cycle;
-                        //busy[wait_for_sl.reg_pos] = 0;
                         forwarding_mem_reg = wait_for_sl.reg_pos;
                         forwarding_mem = wait_for_sl.val;
                         wait_for_load = 0;
@@ -1049,8 +815,6 @@ namespace RISCV {
                     while (!q_for_code.empty()) q_for_code.pop();
                     while (!q_for_mem.empty()) q_for_mem.pop();
                     wait_time = 0;
-                    /*for (int i = 0; i < 32; i++)
-                        busy[i] = 0;*/
                     forwarding_ex = 0;
                     forwarding_ex_reg = 0;
                     forwarding_mem = 0;
@@ -1078,7 +842,6 @@ namespace RISCV {
                 if (ex.cycle == cycle) return;
                 q_for_reg.pop();
                 reg[ex.reg_pos] = ex.val;
-                //busy[ex.reg_pos] = 0;
             }
         }
 
