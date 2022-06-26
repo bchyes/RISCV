@@ -44,6 +44,7 @@ namespace RISCV {
 
         bool IF_flag = 0;
         bool Branch_flag = 0;
+        bool wait_for_load = 0;
         //bool busy[REG_SIZE];//仅仅用于load函数需要停顿的情况
         std::queue<Command> q_for_command;
         std::queue<Decode> q_for_code;
@@ -61,17 +62,7 @@ namespace RISCV {
         uint32_t tmp_reg_rs2_u;
     public:
         void RunFiveStagePipeline() {
-            for (cycle = 0; cycle <= 45; cycle++) {
-                IF();
-                ID();
-                EX();
-                MEM();
-                WB();
-            }
-            for (cycle = 46;; cycle++) {
-                if (pc == 0x1000) {
-                    int x = 1;
-                }
+            for (cycle = 0;; cycle++) {
                 IF();
                 ID();
                 EX();
@@ -82,6 +73,7 @@ namespace RISCV {
                     break;
                 }
             }
+            std::cerr << cycle;
         }
 
         void IF() {
@@ -144,7 +136,7 @@ namespace RISCV {
                 if (code.cycle == cycle) return;
                 Execute ex;
                 //bool stall = 0;
-                if (q_for_mem.empty() && !wait_time) {
+                if (q_for_mem.size() <= 1 && !wait_time && !wait_for_load) {
                     switch (code.type) {
                         case LUI:
                             ex.reg_pos = code.div.rd;
@@ -377,6 +369,7 @@ namespace RISCV {
                             //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
+                            wait_for_load = 1;
                             break;
                         case LH:
                             /*if (busy[code.div.rs1]) {
@@ -397,6 +390,7 @@ namespace RISCV {
                             //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
+                            wait_for_load = 1;
                             break;
                         case LW:
                             /*if (busy[code.div.rs1]) {
@@ -417,6 +411,7 @@ namespace RISCV {
                             //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
+                            wait_for_load = 1;
                             break;
                         case LBU:
                             /*if (busy[code.div.rs1]) {
@@ -437,6 +432,7 @@ namespace RISCV {
                             //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
+                            wait_for_load = 1;
                             break;
                         case LHU:
                             /*if (busy[code.div.rs1]) {
@@ -457,6 +453,7 @@ namespace RISCV {
                             //busy[ex.reg_pos] = 1;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
+                            wait_for_load = 1;
                             break;
                         case SB:
                             /*if (busy[code.div.rs1]) {
@@ -1013,6 +1010,7 @@ namespace RISCV {
                         //busy[wait_for_sl.reg_pos] = 0;
                         forwarding_mem_reg = wait_for_sl.reg_pos;
                         forwarding_mem = wait_for_sl.val;
+                        wait_for_load = 0;
                         q_for_reg.push(wait_for_sl);
                     } else if (wait_for_sl.save_bit) {
                         switch (wait_for_sl.save_bit) {
@@ -1038,13 +1036,15 @@ namespace RISCV {
                 if (ex.cycle == cycle) return;
                 if (ex.jump) {
                     if (!q_for_reg.empty()) return;
-                    pc = ex.mem_pos;
                     if (ex.reg_pos && !Branch_flag) {
+                        ex.cycle = cycle;
                         q_for_reg.push(ex);
-                        reg[ex.reg_pos] = ex.val;
                         Branch_flag = 1;
+                        return;
                     }
+                    pc = ex.mem_pos;
                     IF_flag = 0;
+                    wait_for_load = 0;
                     while (!q_for_command.empty()) q_for_command.pop();
                     while (!q_for_code.empty()) q_for_code.pop();
                     while (!q_for_mem.empty()) q_for_mem.pop();

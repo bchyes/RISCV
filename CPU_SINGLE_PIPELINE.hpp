@@ -12,9 +12,6 @@ namespace RISCV {
     public:
         void Run() {
             for (int cycle = 0;; cycle++) {
-                if (pc == 0x1000) {
-                    int x = 1;
-                }
                 uint32_t command = GetCommand(pc);
                 Divide div = GetDivide(command);
                 if (div.command == 0x0ff00513) {
