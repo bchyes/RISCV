@@ -15,6 +15,9 @@ namespace RISCV {
             SB, SH, SW, ADDI, SLTI, SLTIU, XORI, ORI, ANDI, SLLI, SRLI, SRAI, ADD, SUB,
             SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND
         };
+        enum BranchType {
+            NO, BEQ_branch, BNE_branch, BLT_branch, BGE_branch, BLTU_branch, BGEU_branch
+        };
         uint32_t cycle = 0;
         struct Command {
             uint32_t command;
@@ -40,6 +43,7 @@ namespace RISCV {
             int8_t save_bit = 0;
             bool jump = 0;
             uint32_t cycle;
+            BranchType branch = NO;
         };
 
         bool IF_flag = 0;
@@ -65,9 +69,18 @@ namespace RISCV {
         uint8_t Bge_branch = 0;
         uint8_t Bltu_branch = 0;
         uint8_t Bgeu_branch = 0;
+        uint32_t Beq_branch_pc = 0;
+        uint32_t Bne_branch_pc = 0;
+        uint32_t Blt_branch_pc = 0;
+        uint32_t Bge_branch_pc = 0;
+        uint32_t Bltu_branch_pc = 0;
+        uint32_t Bgeu_branch_pc = 0;
     public:
         void RunFiveStagePipeline() {
             for (cycle = 0;; cycle++) {
+                if (cycle == 278) {
+                    int x = 1;
+                }
                 IF();
                 ID();
                 EX();
@@ -88,6 +101,57 @@ namespace RISCV {
                     IF_flag = 1;
                     return;
                 }
+                if (command % (1 << 7) == 0b1100011) {
+                    switch ((command >> 12) % (1 << 3)) {
+                        case 0b0:
+                            if (Beq_branch == 2 || Beq_branch == 3) {
+                                int32_t imm = GetimmB(Divide(command));
+                                Beq_branch_pc = pc;
+                                pc += imm - 4;
+                            }
+                            break;
+                        case 0b1:
+                            if (Bne_branch == 2 || Bne_branch == 3) {
+                                int32_t imm = GetimmB(Divide(command));
+                                Bne_branch_pc = pc;
+                                pc += imm - 4;
+                            }
+                            break;
+                        case 0b100:
+                            if (Blt_branch == 2 || Blt_branch == 3) {
+                                int32_t imm = GetimmB(Divide(command));
+                                Blt_branch_pc = pc;
+                                pc += imm - 4;
+                            }
+                            break;
+                        case 0b101:
+                            if (Bge_branch == 2 || Bge_branch == 3) {
+                                int32_t imm = GetimmB(Divide(command));
+                                Bge_branch_pc = pc;
+                                pc += imm - 4;
+                            }
+                            break;
+                        case 0b110:
+                            if (Bltu_branch == 2 || Bltu_branch == 3) {
+                                int32_t imm = GetimmB(Divide(command));
+                                Bltu_branch_pc = pc;
+                                pc += imm - 4;
+                            }
+                            break;
+                        case 0b111:
+                            if (Bgeu_branch == 2 || Bgeu_branch == 3) {
+                                int32_t imm = GetimmB(Divide(command));
+                                Bgeu_branch_pc = pc;
+                                pc += imm - 4;
+                            }
+                            break;
+                    }
+                }/* else if (command % (1 << 7) == 0b1100111) {
+                    int32_t imm = GetimmI(Divide(command));
+
+                } else if (command % (1 << 7) == 0b1101111) {
+                    int32_t imm = GetimmJ(Divide(command));
+                }*/
                 q_for_command.push({command, cycle, pc});
             }
         }
@@ -195,6 +259,7 @@ namespace RISCV {
                                 ex.mem_pos = code.pc + code.imm - 4;
                                 ex.jump = 1;
                             }
+                            ex.branch = BEQ_branch;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
                             break;
@@ -217,6 +282,7 @@ namespace RISCV {
                                 ex.mem_pos = code.pc + code.imm - 4;
                                 ex.jump = 1;
                             }
+                            ex.branch = BNE_branch;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
                             break;
@@ -239,6 +305,7 @@ namespace RISCV {
                                 ex.mem_pos = code.pc + code.imm - 4;
                                 ex.jump = 1;
                             }
+                            ex.branch = BLT_branch;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
                             break;
@@ -261,6 +328,7 @@ namespace RISCV {
                                 ex.mem_pos = code.pc + code.imm - 4;
                                 ex.jump = 1;
                             }
+                            ex.branch = BGE_branch;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
                             break;
@@ -283,6 +351,7 @@ namespace RISCV {
                                 ex.mem_pos = code.pc + code.imm - 4;
                                 ex.jump = 1;
                             }
+                            ex.branch = BLTU_branch;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
                             break;
@@ -305,6 +374,7 @@ namespace RISCV {
                                 ex.mem_pos = code.pc + code.imm - 4;
                                 ex.jump = 1;
                             }
+                            ex.branch = BGEU_branch;
                             forwarding_ex_reg = 0;
                             forwarding_ex = 0;
                             break;
@@ -801,6 +871,52 @@ namespace RISCV {
                 Execute ex = q_for_mem.front();
                 if (ex.cycle == cycle) return;
                 if (ex.jump) {
+                    if (ex.branch != NO) {
+                        switch (ex.branch) {
+                            case BEQ_branch:
+                                if (Beq_branch == 2 || Beq_branch == 3) {
+                                    Beq_branch = 3;
+                                    q_for_mem.pop();
+                                    return;
+                                }
+                                break;
+                            case BNE_branch:
+                                if (Bne_branch == 2 || Bne_branch == 3) {
+                                    Bne_branch = 3;
+                                    q_for_mem.pop();
+                                    return;
+                                }
+                                break;
+                            case BLT_branch:
+                                if (Blt_branch == 2 || Blt_branch == 3) {
+                                    Blt_branch = 3;
+                                    q_for_mem.pop();
+                                    return;
+                                }
+                                break;
+                            case BGE_branch:
+                                if (Bge_branch == 2 || Bge_branch == 3) {
+                                    Bge_branch = 3;
+                                    q_for_mem.pop();
+                                    return;
+                                }
+                                break;
+                            case BLTU_branch:
+                                if (Bltu_branch == 2 || Bltu_branch == 3) {
+                                    Bltu_branch = 3;
+                                    q_for_mem.pop();
+                                    return;
+                                }
+                                break;
+                            case BGEU_branch:
+                                if (Bgeu_branch == 2 || Bgeu_branch == 3) {
+                                    Bgeu_branch = 3;
+                                    q_for_mem.pop();
+                                    return;
+                                }
+                                break;
+                        }
+                    }
                     if (!q_for_reg.empty()) return;
                     if (ex.reg_pos && !Branch_flag) {
                         ex.cycle = cycle;
@@ -808,7 +924,147 @@ namespace RISCV {
                         Branch_flag = 1;
                         return;
                     }
+                    switch (ex.branch) {
+                        case BEQ_branch:
+                            if (Beq_branch == 0)
+                                Beq_branch = 1;
+                            else if (Beq_branch == 1)
+                                Beq_branch = 2;
+                            break;
+                        case BNE_branch:
+                            if (Bne_branch == 0)
+                                Bne_branch = 1;
+                            else if (Bne_branch == 1)
+                                Bne_branch = 2;
+                            break;
+                        case BLT_branch:
+                            if (Blt_branch == 0)
+                                Blt_branch = 1;
+                            else if (Blt_branch == 1)
+                                Blt_branch = 2;
+                            break;
+                        case BGE_branch:
+                            if (Bge_branch == 0)
+                                Bge_branch = 1;
+                            else if (Bge_branch == 1)
+                                Bge_branch = 2;
+                            break;
+                        case BLTU_branch:
+                            if (Bltu_branch == 0)
+                                Bltu_branch = 1;
+                            else if (Bltu_branch == 1)
+                                Bltu_branch = 2;
+                            break;
+                        case BGEU_branch:
+                            if (Bgeu_branch == 0)
+                                Bgeu_branch = 1;
+                            else if (Bgeu_branch == 1)
+                                Bgeu_branch = 2;
+                            break;
+                    }
                     pc = ex.mem_pos;
+                    IF_flag = 0;
+                    wait_for_load = 0;
+                    while (!q_for_command.empty()) q_for_command.pop();
+                    while (!q_for_code.empty()) q_for_code.pop();
+                    while (!q_for_mem.empty()) q_for_mem.pop();
+                    wait_time = 0;
+                    forwarding_ex = 0;
+                    forwarding_ex_reg = 0;
+                    forwarding_mem = 0;
+                    forwarding_mem_reg = 0;
+                    Branch_flag = 0;
+                    return;
+                } else if (ex.branch != NO) {
+                    switch (ex.branch) {
+                        case BEQ_branch:
+                            if (Beq_branch == 0 || Beq_branch == 1) {
+                                Beq_branch = 0;
+                                q_for_mem.pop();
+                                return;
+                            }
+                            break;
+                        case BNE_branch:
+                            if (Bne_branch == 0 || Bne_branch == 1) {
+                                Bne_branch = 0;
+                                q_for_mem.pop();
+                                return;
+                            }
+                            break;
+                        case BLT_branch:
+                            if (Blt_branch == 0 || Blt_branch == 1) {
+                                Blt_branch = 0;
+                                q_for_mem.pop();
+                                return;
+                            }
+                            break;
+                        case BGE_branch:
+                            if (Bge_branch == 0 || Bge_branch == 1) {
+                                Bge_branch = 0;
+                                q_for_mem.pop();
+                                return;
+                            }
+                            break;
+                        case BLTU_branch:
+                            if (Bltu_branch == 0 || Bltu_branch == 1) {
+                                Bltu_branch = 0;
+                                q_for_mem.pop();
+                                return;
+                            }
+                            break;
+                        case BGEU_branch:
+                            if (Bgeu_branch == 0 || Bgeu_branch == 1) {
+                                Bgeu_branch = 0;
+                                q_for_mem.pop();
+                                return;
+                            }
+                            break;
+                    }
+                    if (!q_for_reg.empty()) return;
+                    switch (ex.branch) {
+                        case BEQ_branch:
+                            if (Beq_branch == 2)
+                                Beq_branch = 1;
+                            else if (Beq_branch == 3)
+                                Beq_branch = 2;
+                            pc = Beq_branch_pc;
+                            break;
+                        case BNE_branch:
+                            if (Bne_branch == 2)
+                                Bne_branch = 1;
+                            else if (Bne_branch == 3)
+                                Bne_branch = 2;
+                            pc = Bne_branch_pc;
+                            break;
+                        case BLT_branch:
+                            if (Blt_branch == 2)
+                                Blt_branch = 1;
+                            else if (Blt_branch == 3)
+                                Blt_branch = 2;
+                            pc = Blt_branch_pc;
+                            break;
+                        case BGE_branch:
+                            if (Bge_branch == 2)
+                                Bge_branch = 1;
+                            else if (Bge_branch == 3)
+                                Bge_branch = 2;
+                            pc = Bge_branch_pc;
+                            break;
+                        case BLTU_branch:
+                            if (Bltu_branch == 2)
+                                Bltu_branch = 1;
+                            else if (Bltu_branch == 3)
+                                Bltu_branch = 2;
+                            pc = Bltu_branch_pc;
+                            break;
+                        case BGEU_branch:
+                            if (Bgeu_branch == 2)
+                                Bgeu_branch = 1;
+                            else if (Bgeu_branch == 3)
+                                Bgeu_branch = 2;
+                            pc = Bgeu_branch_pc;
+                            break;
+                    }
                     IF_flag = 0;
                     wait_for_load = 0;
                     while (!q_for_command.empty()) q_for_command.pop();
