@@ -76,6 +76,8 @@ namespace RISCV {
         std::queue<uint32_t> Bltu_branch_pc;
         std::queue<uint32_t> Bgeu_branch_pc;
         //uint32_t Debug[MEM_SIZE];
+        uint32_t all_branch = 0;
+        uint32_t true_branch = 0;
     public:
         void RunFiveStagePipeline() {
             /*for (int i = 0; i < MEM_SIZE; i++)
@@ -98,7 +100,8 @@ namespace RISCV {
                     break;
                 }
             }
-            std::cerr << cycle;
+            std::cerr << cycle << std::endl;
+            std::cerr << true_branch << "/" << all_branch << "=" << (double) (true_branch) / (double) (all_branch);
         }
 
         void IF() {
@@ -109,6 +112,7 @@ namespace RISCV {
                     return;
                 }
                 if (command % (1 << 7) == 0b1100011) {
+                    all_branch++;
                     switch ((command >> 12) % (1 << 3)) {
                         case 0b0:
                             if (Beq_branch == 2 || Beq_branch == 3) {
@@ -879,6 +883,7 @@ namespace RISCV {
                 if (ex.cycle == cycle) return;
                 if (ex.jump) {
                     if (ex.branch != NO) {
+                        true_branch++;
                         switch (ex.branch) {
                             case BEQ_branch:
                                 if (Beq_branch == 2 || Beq_branch == 3) {
@@ -995,6 +1000,7 @@ namespace RISCV {
                     Branch_flag = 0;
                     return;
                 } else if (ex.branch != NO) {
+                    true_branch++;
                     switch (ex.branch) {
                         case BEQ_branch:
                             if (Beq_branch == 0 || Beq_branch == 1) {
