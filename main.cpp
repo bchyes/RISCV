@@ -18,7 +18,7 @@ namespace RISCV {
 }
 
 int main() {
-    //freopen("pi.data", "r", stdin);
+    //freopen("bulgarian.data", "r", stdin);
     RISCV::RunFiveStagePipeline();
     return 0;
 }
