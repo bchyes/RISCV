@@ -1,6 +1,7 @@
 #include "CPU.hpp"
 #include "CPU_SINGLE_PIPELINE.hpp"
 #include "CPU_FIVE_PIPLINE.hpp"
+#include "Tomasulo.hpp"
 #include <iostream>
 
 namespace RISCV {
@@ -15,10 +16,16 @@ namespace RISCV {
         cpu.ReadMemory(stdin);
         cpu.RunFiveStagePipeline();
     }
+
+    void RunTomasulo() {
+        Tomasulo cpu;
+        cpu.ReadMemory(stdin);
+        cpu.RunTomasulo();
+    }
 }
 
 int main() {
-    freopen("qsort.data", "r", stdin);
+    //freopen("naive.data", "r", stdin);
     RISCV::RunFiveStagePipeline();
     return 0;
 }

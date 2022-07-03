@@ -39,7 +39,7 @@ namespace RISCV {
             uint8_t reg_pos = 0;
             uint32_t mem_pos = 0;//记录跳转或者读写的位置
             uint32_t val = 0;
-            int8_t load_bit = 0;//约定符号为无符号扩展
+            int8_t load_bit = 0;//约定负号为无符号扩展
             int8_t save_bit = 0;
             bool jump = 0;
             uint32_t cycle;
@@ -90,11 +90,11 @@ namespace RISCV {
                         return;
                     }
                 }*/
-                IF();
-                ID();
-                EX();
-                MEM();
                 WB();
+                ID();
+                MEM();
+                EX();
+                IF();
                 if (IF_flag && q_for_command.empty() && q_for_code.empty() && q_for_mem.empty() && q_for_reg.empty()) {
                     printf("%u\n", GetBitBetween(reg[10], 0, 7));
                     break;

@@ -16,7 +16,7 @@ namespace RISCV {
             unsigned funct7: 7;
         };
 
-        explicit Divide() = default;
+        Divide() = default;
 
         explicit Divide(const uint32_t &value) : command(value) {};
     };
@@ -67,6 +67,54 @@ namespace RISCV {
 
     Divide GetDivide(const uint32_t &command) {
         return Divide(command);
+    }
+
+    int32_t Getimm(const Divide &div) {
+        switch (div.opcode) {
+            case 0b110111:
+                return GetimmU(div);
+            case 0b10111:
+                return GetimmU(div);
+            case 0b1101111:
+                return GetimmJ(div);
+            case 0b1100111:
+                return GetimmI(div);
+            case 0b1100011:
+                return GetimmB(div);
+            case 0b11:
+                return GetimmI(div);
+            case 0b100011:
+                return GetimmS(div);
+            case 0b10011:
+                return GetimmI(div);
+            case 0b110011:
+                return 0;
+        }
+        return 0;
+    }
+
+    enum OperationType {
+        I, S, U, J, B, R
+    };
+
+    OperationType GetType(Divide div) {
+        switch (div.opcode) {
+            case 0b11:
+            case 0b10011:
+            case 0b1100111:
+                return I;
+            case 0b100011:
+                return S;
+            case 0b110111:
+            case 0b10111:
+                return U;
+            case 0b1101111:
+                return J;
+            case 0b1100011:
+                return B;
+            default:
+                return R;
+        }
     }
 }
 #endif //RISCV_BITOPERATOR_HPP
